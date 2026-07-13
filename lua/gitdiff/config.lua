@@ -7,9 +7,7 @@ local defaults = {
   rev = "HEAD",
   all = false,
   preview = true,
-  -- Prompt for a parent when reviewing a merge commit. Set this to a positive
-  -- integer to always compare merges with that parent instead.
-  merge_parent = "select",
+  merge_parent = 1,
   history_args = {},
   diffview_args = {},
   notify_shallow = true,
@@ -28,13 +26,6 @@ local function validate(config)
   end
   if type(config.history_args) ~= "table" or type(config.diffview_args) ~= "table" then
     error("gitdiff history_args and diffview_args must be lists")
-  end
-  if config.merge_parent ~= "select"
-      and (type(config.merge_parent) ~= "number"
-        or config.merge_parent % 1 ~= 0
-        or config.merge_parent < 1)
-  then
-    error('gitdiff.merge_parent must be "select" or a positive integer')
   end
 end
 

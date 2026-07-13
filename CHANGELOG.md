@@ -2,12 +2,6 @@
 
 All notable changes to gitdiff.nvim will be documented in this file.
 
-## [Unreleased]
-
-- Prompt for the parent to compare when a merge commit is selected, with each
-  parent's subject, author, relative date, and availability shown in the list.
-- Allow `merge_parent` to remain a positive integer for automatic selection.
-
 ## [0.1.0] - 2026-07-12
 
 - Add commit history selection with Snacks, Telescope, fzf-lua, `vim.ui`, and

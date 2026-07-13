@@ -21,7 +21,7 @@ correct historical comparison without copying hashes or constructing ranges.
 | --- | :---: | :---: |
 | Render and navigate a diff | ✓ | Uses Diffview |
 | Search and select a commit | — | ✓ |
-| Interactively choose a merge parent | — | ✓ |
+| Choose the correct parent automatically | — | ✓ |
 | Handle root, merge, and shallow history | — | ✓ |
 | Snacks, Telescope, fzf-lua, and native pickers | — | ✓ |
 | Guard the historical review from index mutations | — | ✓ |
@@ -72,9 +72,8 @@ Press `<leader>gv` or run:
 
 GitDiff resolves the repository from the current file or workspace, opens a
 commit picker, and compares the selected commit with its direct parent. Root
-commits are compared with Git's empty tree. For a merge commit, GitDiff opens a
-second picker showing every parent commit's subject, author, and age, so you can
-choose which side of the merge to compare.
+commits are compared with Git's empty tree. Merge commits use the first parent
+by default.
 
 Historical reviews use immutable commit buffers. GitDiff additionally blocks
 Diffview's stage, unstage, and restore events for the review it creates.
@@ -91,7 +90,7 @@ require("gitdiff").setup({
   rev = "HEAD",
   all = false,
   preview = true,
-  merge_parent = "select", -- prompt on merges; use 1, 2, ... to always choose
+  merge_parent = 1,
   history_args = {},
   diffview_args = {},   -- only --selected-file=... is accepted
   notify_shallow = true,
@@ -101,10 +100,6 @@ require("gitdiff").setup({
 
 `picker` may also be a function receiving the picker options. It must call one
 of `on_select(item)`, `on_cancel()`, or `on_error(message)`.
-
-`merge_parent = "select"` uses `vim.ui.select`, so UI extensions such as
-dressing.nvim automatically style the merge-parent picker. Set a positive
-integer to skip the prompt and always compare against that numbered parent.
 
 The default mapping is conflict-safe: GitDiff will not replace an existing
 global `<leader>gv` mapping. `:GitDiff` remains available when a conflict exists.

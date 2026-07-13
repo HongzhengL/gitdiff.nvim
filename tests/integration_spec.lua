@@ -51,31 +51,6 @@ describe("gitdiff Git integration", function()
     assert.are.same((vim.uv or vim.loop).fs_realpath(repo), git.find_toplevel(nested))
   end)
 
-  it("reads display metadata for every merge parent", function()
-    write(repo, "root.txt", "root")
-    commit(repo, "root")
-    local main_branch = git_run(repo, { "branch", "--show-current" })
-
-    git_run(repo, { "checkout", "-b", "feature" })
-    write(repo, "feature.txt", "feature")
-    local feature_hash = commit(repo, "feature work")
-
-    git_run(repo, { "checkout", main_branch })
-    write(repo, "main.txt", "main")
-    local main_hash = commit(repo, "mainline work")
-    git_run(repo, { "merge", "--no-ff", "feature", "-m", "merge feature" })
-
-    local merge = assert(git.read_commit(repo, "HEAD"))
-    local choices = git.parent_choices(repo, merge)
-
-    assert.are.same({ main_hash, feature_hash }, merge.parents)
-    assert.are.same(2, #choices)
-    assert.are.same("mainline work", choices[1].subject)
-    assert.are.same("feature work", choices[2].subject)
-    assert.are.same("GitDiff Tests", choices[2].author)
-    assert.is_not.same("", choices[2].relative_date)
-  end)
-
   it("detects a shallow boundary without fetching", function()
     write(repo, "one.txt", "one")
     commit(repo, "one")
