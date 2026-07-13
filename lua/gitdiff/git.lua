@@ -27,6 +27,15 @@ M.FIELD_SEP = FIELD_SEP
 ---@field parent? string
 ---@field parent_index? integer
 
+---@class GitDiffParentChoice
+---@field index integer
+---@field hash string
+---@field short_hash string
+---@field subject string
+---@field author string
+---@field relative_date string
+---@field unavailable boolean
+
 local function git_cmd()
   local cmd = config.get().git_cmd
   return type(cmd) == "table" and vim.deepcopy(cmd) or { cmd }
@@ -330,6 +339,31 @@ function M.read_commit(repo, rev)
 
   if #commit.parents == 0 then commit.empty_tree = M.empty_tree(repo) end
   return commit
+end
+
+---@param repo string
+---@param commit GitDiffCommit
+---@return GitDiffParentChoice[]
+function M.parent_choices(repo, commit)
+  local choices = {}
+  local short_length = #(commit.short_hash or "")
+  if short_length == 0 then short_length = 8 end
+
+  for index, hash in ipairs(commit.parents or {}) do
+    local unavailable = commit.missing_parents and commit.missing_parents[index] or false
+    local parent = not unavailable and M.read_commit(repo, hash) or nil
+    choices[#choices + 1] = {
+      index = index,
+      hash = hash,
+      short_hash = parent and parent.short_hash or hash:sub(1, short_length),
+      subject = parent and parent.subject or "Commit metadata unavailable",
+      author = parent and parent.author or "",
+      relative_date = parent and parent.relative_date or "",
+      unavailable = unavailable,
+    }
+  end
+
+  return choices
 end
 
 ---@param opt table

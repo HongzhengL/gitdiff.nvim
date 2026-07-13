@@ -258,6 +258,66 @@ local function open_view(repo, commit, range, context, conf)
 
 end
 
+local function parent_choice_label(choice)
+  local role = choice.index == 1 and "first parent" or ("parent %d"):format(choice.index)
+  local label = ("%s  %s  %s"):format(role, choice.short_hash, choice.subject)
+  local byline = table.concat(vim.tbl_filter(function(value) return value ~= "" end, {
+    choice.author,
+    choice.relative_date,
+  }), ", ")
+  if byline ~= "" then label = label .. " — " .. byline end
+  if choice.unavailable then label = label .. " (unavailable locally)" end
+  return label
+end
+
+local function open_range(repo, commit, parent_index, context, conf)
+  local range, range_err = git.revision_range(commit, parent_index)
+  if not range then
+    fail(context, range_err or "The selected commit comparison could not be determined.")
+    return
+  end
+
+  if range.kind == "merge" then
+    utils.info((
+      "Merge commit %s will be compared with parent %d (%s)."
+    ):format(commit.short_hash, range.parent_index, range.parent:sub(1, #commit.short_hash)))
+  end
+
+  open_view(repo, commit, range, context, conf)
+end
+
+local function select_merge_parent(repo, commit, context, conf)
+  local choices = git.parent_choices(repo, commit)
+  state.active = {
+    phase = "parent_picker",
+    context = context,
+    repo = repo,
+    commit = commit,
+  }
+
+  local delivered = false
+  local function on_select(choice)
+    if delivered then return end
+    delivered = true
+    if not choice then
+      finish_active()
+      vim.schedule(function() M.restore_context(context) end)
+      return
+    end
+    open_range(repo, commit, choice.index, context, conf)
+  end
+
+  local ok, select_err = pcall(vim.ui.select, choices, {
+    prompt = ("Select parent for merge %s:"):format(commit.short_hash),
+    kind = "gitdiff_parent",
+    format_item = parent_choice_label,
+  }, on_select)
+  if not ok then
+    utils.log("Parent picker error: " .. tostring(select_err))
+    fail(context, "The merge-parent picker could not be opened.")
+  end
+end
+
 ---@param repo string
 ---@param hash string
 ---@param context? GitDiffContext
@@ -274,19 +334,12 @@ function M.open_commit(repo, hash, context)
     return
   end
 
-  local range, range_err = git.revision_range(commit, conf.merge_parent)
-  if not range then
-    fail(context, range_err or "The selected commit comparison could not be determined.")
+  if #(commit.parents or {}) > 1 and conf.merge_parent == "select" then
+    select_merge_parent(repo, commit, context, conf)
     return
   end
 
-  if range.kind == "merge" then
-    utils.info((
-      "Merge commit %s will be compared with parent %d (%s)."
-    ):format(commit.short_hash, range.parent_index, range.parent:sub(1, #commit.short_hash)))
-  end
-
-  open_view(repo, commit, range, context, conf)
+  open_range(repo, commit, conf.merge_parent, context, conf)
 end
 
 local function selected_hash(item)
