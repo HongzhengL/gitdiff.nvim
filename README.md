@@ -1,5 +1,8 @@
 # gitdiff.nvim
 
+[![CI](https://github.com/HongzhengL/gitdiff.nvim/actions/workflows/ci.yml/badge.svg)](https://github.com/HongzhengL/gitdiff.nvim/actions/workflows/ci.yml)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+
 `gitdiff.nvim` is a focused commit-review picker for Neovim. Choose a commit,
 preview its metadata, and open an exact parent-to-commit comparison in
 [`sindrets/diffview.nvim`](https://github.com/sindrets/diffview.nvim).
@@ -7,6 +10,21 @@ preview its metadata, and open an exact parent-to-commit comparison in
 The plugin is intentionally small: Diffview remains responsible for rendering
 and navigation, while GitDiff owns repository discovery, history selection,
 merge-parent handling, shallow-clone checks, and the read-only review boundary.
+
+## Why GitDiff?
+
+Diffview is excellent once you know what revision to open. GitDiff adds the
+missing interactive step: search your history, preview a commit, and open the
+correct historical comparison without copying hashes or constructing ranges.
+
+| Capability | Diffview | GitDiff |
+| --- | :---: | :---: |
+| Render and navigate a diff | ✓ | Uses Diffview |
+| Search and select a commit | — | ✓ |
+| Choose the correct parent automatically | — | ✓ |
+| Handle root, merge, and shallow history | — | ✓ |
+| Snacks, Telescope, fzf-lua, and native pickers | — | ✓ |
+| Guard the historical review from index mutations | — | ✓ |
 
 ## Requirements
 
@@ -59,6 +77,8 @@ by default.
 
 Historical reviews use immutable commit buffers. GitDiff additionally blocks
 Diffview's stage, unstage, and restore events for the review it creates.
+
+If setup does not behave as expected, run `:checkhealth gitdiff`.
 
 ## Configuration
 
