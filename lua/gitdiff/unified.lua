@@ -330,6 +330,7 @@ local function build_layout(options)
     then
       vim.bo[display.bufnr].modifiable = false
       vim.bo[display.bufnr].readonly = true
+      vim.bo[display.bufnr].buflisted = false
       if self.snapshot then self.snapshot:track_buffer(display.bufnr) end
     end
 

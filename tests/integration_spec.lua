@@ -157,6 +157,7 @@ describe("gitdiff Git integration", function()
     assert.are.same({ "first = 'new'" }, first_lines)
     assert.are.same("python", vim.bo[first_buf].filetype)
     assert.are.same("", vim.bo[first_buf].buftype)
+    assert.is_false(vim.bo[first_buf].buflisted)
     assert.is_truthy(vim.uri_from_bufnr(first_buf):find("^file://"))
     assert.is_truthy(
       vim.api.nvim_buf_get_name(first_buf):find(snapshot_root, 1, true)
@@ -262,6 +263,7 @@ describe("gitdiff Git integration", function()
     )
     assert.are.same("python", vim.bo[buf].filetype)
     assert.is_false(vim.bo[buf].modifiable)
+    assert.is_false(vim.bo[buf].buflisted)
     assert.is_truthy(vim.api.nvim_buf_get_name(buf):find(active.snapshot.root, 1, true))
 
     local deleted = false
