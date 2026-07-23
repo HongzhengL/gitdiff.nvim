@@ -21,6 +21,7 @@ function M.check()
     start = api.start or api.report_start,
     ok = api.ok or api.report_ok,
     info = api.info or api.report_info,
+    warn = api.warn or api.report_warn,
     error = api.error or api.report_error,
   }
   local config = require("gitdiff.config").get()
@@ -51,7 +52,7 @@ function M.check()
     health.ok("sindrets/diffview.nvim is available")
   else
     health.error("sindrets/diffview.nvim is unavailable", {
-      "Install sindrets/diffview.nvim and nvim-lua/plenary.nvim as dependencies",
+      "Install sindrets/diffview.nvim and nvim-lua/plenary.nvim",
     })
   end
 

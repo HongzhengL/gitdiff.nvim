@@ -8,6 +8,7 @@ local M = {}
 local state = {
   active = nil,
   mapped_lhs = nil,
+  unified_mapped_lhs = nil,
   conflict_notified = {},
 }
 
@@ -66,19 +67,59 @@ local function global_mapping(lhs)
   return {}
 end
 
-local function owns_mapping(lhs)
+local function owns_mapping(lhs, state_key, desc, callback)
   local map = global_mapping(lhs)
-  return state.mapped_lhs == lhs
+  return state[state_key] == lhs
     and type(map) == "table"
-    and map.desc == "GitDiff"
-    and map.callback == M.open
+    and map.desc == desc
+    and map.callback == callback
 end
 
-local function delete_owned_mapping()
-  if state.mapped_lhs and owns_mapping(state.mapped_lhs) then
-    pcall(vim.keymap.del, "n", state.mapped_lhs)
+local function delete_owned_mapping(state_key, desc, callback)
+  local lhs = state[state_key]
+  if lhs and owns_mapping(lhs, state_key, desc, callback) then
+    pcall(vim.keymap.del, "n", lhs)
   end
-  state.mapped_lhs = nil
+  state[state_key] = nil
+end
+
+local function setup_one_mapping(lhs, state_key, desc, callback, config_key)
+  if lhs == false or lhs == nil or lhs == "" then
+    delete_owned_mapping(state_key, desc, callback)
+    return true
+  end
+
+  if type(lhs) ~= "string" then
+    utils.warn(("GitDiff %s must be a string or false; the mapping was not created."):format(config_key))
+    return false, "invalid"
+  end
+
+  if state[state_key] and state[state_key] ~= lhs then
+    delete_owned_mapping(state_key, desc, callback)
+  end
+
+  local existing = global_mapping(lhs)
+  if type(existing) == "table"
+      and next(existing) ~= nil
+      and not owns_mapping(lhs, state_key, desc, callback)
+  then
+    if not state.conflict_notified[lhs] then
+      state.conflict_notified[lhs] = true
+      utils.warn((
+        "GitDiff did not map %s because it is already in use. "
+        .. "Set gitdiff.%s to another key (or false) and use "
+        .. ":GitDiff as the alternate entry."
+      ):format(lhs, config_key))
+    end
+    return false, "conflict"
+  end
+
+  vim.keymap.set("n", lhs, callback, {
+    desc = desc,
+    silent = true,
+  })
+  state[state_key] = lhs
+  return true
 end
 
 ---@param opt? string|false|table
@@ -94,44 +135,40 @@ function M.setup_mapping(opt)
     lhs = config.get().keymap
   end
 
-  if lhs == false or lhs == nil or lhs == "" then
-    delete_owned_mapping()
-    return true
-  end
+  return setup_one_mapping(lhs, "mapped_lhs", "GitDiff", M.open, "keymap")
+end
 
-  if type(lhs) ~= "string" then
-    utils.warn("GitDiff keymap must be a string or false; the mapping was not created.")
-    return false, "invalid"
-  end
+function M.open_unified()
+  return M.open("unified")
+end
 
-  if state.mapped_lhs and state.mapped_lhs ~= lhs then
-    delete_owned_mapping()
+---@param opt? string|false|table
+---@return boolean
+---@return string? reason
+function M.setup_unified_mapping(opt)
+  local lhs
+  if type(opt) == "table" then
+    lhs = opt.unified_keymap
+  elseif opt ~= nil then
+    lhs = opt
+  else
+    lhs = config.get().unified_keymap
   end
-
-  local existing = global_mapping(lhs)
-  if type(existing) == "table" and next(existing) ~= nil and not owns_mapping(lhs) then
-    if not state.conflict_notified[lhs] then
-      state.conflict_notified[lhs] = true
-      utils.warn((
-        "GitDiff did not map %s because it is already in use. "
-        .. "Set gitdiff.keymap to another key (or false) and use "
-        .. ":GitDiff as the alternate entry."
-      ):format(lhs))
-    end
-    return false, "conflict"
-  end
-
-  vim.keymap.set("n", lhs, M.open, {
-    desc = "GitDiff",
-    silent = true,
-  })
-  state.mapped_lhs = lhs
-  return true
+  return setup_one_mapping(
+    lhs,
+    "unified_mapped_lhs",
+    "GitDiff unified",
+    M.open_unified,
+    "unified_keymap"
+  )
 end
 
 function M.setup(user_config)
   config.setup(user_config)
-  return M.setup_mapping(config.get())
+  local conf = config.get()
+  local default_ok, default_reason = M.setup_mapping(conf)
+  local unified_ok, unified_reason = M.setup_unified_mapping(conf)
+  return default_ok and unified_ok, default_reason or unified_reason
 end
 
 local function finish_active()
@@ -186,25 +223,71 @@ local function missing_diffview_message()
   }, "\n")
 end
 
-local function open_view(repo, commit, range, context, conf)
+local function open_view(repo, commit, range, context, conf, mode)
   local lib = get_diffview_lib()
   if not lib then
     fail(context, missing_diffview_message())
     return
   end
 
+  local snapshot
+  local function cleanup_snapshot()
+    if snapshot then snapshot:cleanup() end
+  end
+
+  if mode == "unified" and conf.unified.lsp then
+    local ok_snapshot, snapshots = pcall(require, "gitdiff.snapshot")
+    local snapshot_err
+    if ok_snapshot then snapshot, snapshot_err = snapshots.create(repo, commit.hash) end
+    if not snapshot then
+      utils.log("Failed to prepare historical source worktree: " .. tostring(snapshot_err or snapshots))
+      fail(context, "GitDiff could not prepare a source worktree for LSP.")
+      return
+    end
+  end
+
   local args = { range.rev_arg, "-C=" .. repo }
   vim.list_extend(args, safe_diffview_args(conf.diffview_args))
 
-  local ok_create, view = pcall(lib.diffview_open, args)
+  local ok_create, view = pcall(lib.diffview_open, args, {
+    no_default_args = true,
+    cpath = repo,
+    view_options = {
+      read_only = true,
+      rev_pretty_name = revision_label(commit, range),
+      show_untracked = false,
+    },
+  })
 
   if not ok_create or not view then
+    cleanup_snapshot()
     if not ok_create then utils.log("Failed to prepare view: " .. tostring(view)) end
     fail(
       context,
       "Diffview could not prepare this commit. Your editing context was restored."
     )
     return
+  end
+
+  if mode == "unified" then
+    local ok_module, unified = pcall(require, "gitdiff.unified")
+    local ok_prepare, prepare_err
+    if ok_module then
+      ok_prepare, prepare_err = unified.prepare(view, {
+        context_lines = conf.unified.context_lines,
+        snapshot = snapshot,
+      })
+    end
+
+    if not ok_module or not ok_prepare then
+      local reason = ok_module and prepare_err or unified
+      utils.log("Failed to prepare unified view: " .. tostring(reason))
+      pcall(view.close, view)
+      lib.dispose_view(view)
+      cleanup_snapshot()
+      fail(context, "GitDiff could not prepare the unified review.")
+      return
+    end
   end
 
   -- A historical COMMIT..COMMIT view has immutable buffers, but upstream
@@ -231,7 +314,10 @@ local function open_view(repo, commit, range, context, conf)
 
   view.emitter:on("view_closed", function()
     finish_active()
-    vim.schedule(function() M.restore_context(context) end)
+    vim.schedule(function()
+      cleanup_snapshot()
+      M.restore_context(context)
+    end)
   end)
 
   -- Mark the review active before opening: user hooks can synchronously close
@@ -241,14 +327,17 @@ local function open_view(repo, commit, range, context, conf)
     context = context,
     repo = repo,
     view = view,
+    mode = mode,
+    snapshot = snapshot,
   }
 
-  utils.info(("Loading GitDiff for %s…"):format(commit.short_hash))
+  utils.info(("Loading %s GitDiff for %s…"):format(mode, commit.short_hash))
   local ok_open, open_err = pcall(view.open, view)
   if not ok_open then
     utils.log("Failed to open view: " .. tostring(open_err))
     pcall(view.close, view)
     lib.dispose_view(view)
+    cleanup_snapshot()
     fail(
       context,
       "Diffview could not open this commit. Your editing context was restored."
@@ -261,7 +350,7 @@ end
 ---@param repo string
 ---@param hash string
 ---@param context? GitDiffContext
-function M.open_commit(repo, hash, context)
+function M.open_commit(repo, hash, context, mode)
   context = context or M.capture_context()
   local conf = config.get()
   local commit, commit_err = git.read_commit(repo, hash)
@@ -286,7 +375,8 @@ function M.open_commit(repo, hash, context)
     ):format(commit.short_hash, range.parent_index, range.parent:sub(1, #commit.short_hash)))
   end
 
-  open_view(repo, commit, range, context, conf)
+  mode = mode or conf.view
+  open_view(repo, commit, range, context, conf, mode)
 end
 
 local function selected_hash(item)
@@ -295,7 +385,7 @@ local function selected_hash(item)
   return item.hash or item.commit or item.value
 end
 
-function M.open()
+function M.open(mode)
   if state.active then
     utils.info("GitDiff is already open or loading. Close it before starting another review.")
     return
@@ -303,6 +393,13 @@ function M.open()
 
   -- Dependency failure should be reported on entry, before a picker can alter
   -- the user's tab/window layout.
+  local conf = config.get()
+  mode = mode or conf.view
+  if mode ~= "split" and mode ~= "unified" then
+    utils.err("GitDiff view must be 'split' or 'unified'.")
+    return
+  end
+
   if not get_diffview_lib() then
     utils.err(missing_diffview_message())
     return
@@ -324,7 +421,6 @@ function M.open()
     return
   end
 
-  local conf = config.get()
   if not git.has_commits(repo, { all = conf.all, rev = conf.rev }) then
     utils.info("This Git repository has no commits to review.")
     return
@@ -374,7 +470,7 @@ function M.open()
         fail(context, "The picker returned an invalid commit selection.")
         return
       end
-      vim.schedule(function() M.open_commit(repo, hash, context) end)
+      vim.schedule(function() M.open_commit(repo, hash, context, mode) end)
     end),
     on_cancel = once(function()
       finish_active()
