@@ -4,6 +4,7 @@ local api = vim.api
 local uv = vim.uv or vim.loop
 
 local M = {}
+local LSP_SHUTDOWN_TIMEOUT_MS = 1000
 
 local function normalized(path)
   return vim.fn.fnamemodify(path, ":p"):gsub("\\", "/"):gsub("/$", "")
@@ -19,6 +20,29 @@ local function clients_for_buffer(buf)
   if vim.lsp.get_clients then return vim.lsp.get_clients({ bufnr = buf }) end
   ---@diagnostic disable-next-line: deprecated
   return vim.lsp.get_active_clients({ bufnr = buf })
+end
+
+local function call_client_stop(client, force)
+  -- Client methods became colon-style in Neovim 0.11. Calling the old
+  -- closure-style method with `self` makes 0.9 and 0.10 treat it as `force`.
+  if vim.fn.has("nvim-0.11") == 1 then
+    return pcall(client.stop, client, force)
+  end
+  return pcall(client.stop, force)
+end
+
+local function stop_snapshot_client(client)
+  local ok = call_client_stop(client, false)
+  if not ok then
+    call_client_stop(client, true)
+    return
+  end
+
+  local client_id = client.id
+  vim.defer_fn(function()
+    local current = vim.lsp.get_client_by_id(client_id)
+    if current == client then call_client_stop(current, true) end
+  end, LSP_SHUTDOWN_TIMEOUT_MS)
 end
 
 ---@class GitDiffSnapshot
@@ -79,7 +103,7 @@ function Snapshot:cleanup()
         end
       end
     end
-    if not has_external_buffer then pcall(client.stop, client, true) end
+    if not has_external_buffer then stop_snapshot_client(client) end
   end
 
   git.exec({ "worktree", "remove", "--force", self.root }, self.repo, { silent = true })

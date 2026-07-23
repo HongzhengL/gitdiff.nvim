@@ -11,6 +11,8 @@ All notable changes to gitdiff.nvim will be documented in this file.
   buffer and preserve source line coordinates.
 - Add temporary historical worktrees for normal `file://` buffers, project
   root detection, and LSP support without touching the user's working tree.
+- Shut down snapshot-only LSP clients gracefully, with a timed force fallback
+  compatible with Neovim 0.9 and newer.
 - Add unified hunk navigation and unchanged-context folds.
 - Add a conflict-safe `<leader>gu` mapping that opens unified review directly.
 
